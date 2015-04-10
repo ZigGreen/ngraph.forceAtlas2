@@ -1,5 +1,5 @@
 {
-  "name": "ngraph.forceAtlas2",
+  "name": "ngraph.forceatlas2",
   "version": "1.0.0",
   "description": "ForceAtlas2 layout algorithm for ngraph",
   "main": "Layout.js",
