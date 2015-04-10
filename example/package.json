@@ -1,0 +1,23 @@
+{
+  "name": "forceAtlas2.example",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "browserify": "^9.0.8",
+    "exorcist": "^0.1.6",
+    "gulp": "^3.8.11",
+    "gulp-uglify": "^1.1.0",
+    "gulp-util": "^3.0.4",
+    "ngraph.merge": "0.0.1",
+    "ngraph.random": "0.0.1",
+    "vinyl-source-stream": "^1.1.0",
+    "vivagraphjs": "^0.7.8",
+    "watchify": "^3.1.0"
+  }
+}
