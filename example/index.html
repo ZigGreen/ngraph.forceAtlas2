@@ -3,17 +3,40 @@
 <head lang="en">
     <meta charset="UTF-8">
     <style type='text/css'>
-        body, svg {
+        html, body, #cont {
             height: 100%;
             width: 100%;
-            position: absolute;
             margin: 0;
+        }
+        body {
+            overflow: hidden;
+            background-color: #333333;
+        }
+        input {
+            margin: 10px;
+        }
+        #setup {
+            position: absolute;
+            width: 100%;
+            top: 0;
+            padding: 20px;
+            background: rgba(255, 255, 255, 0.7);
         }
     </style>
     <title></title>
     <script src="dist/index.js"></script>
 </head>
 <body>
+<form id="setup">
+    <label for="communities">communities </label><input type="text" id="communities" value="5"/>
+    <label for="nodesCount">nodesCount</label><input type="text" id="nodesCount" value="1000"/>
+    <label for="bridgeCount">bridgeCount</label><input type="text" id="bridgeCount" value="100"/>
+    <label for="force">forceAtlas2</label><input type="checkbox" id="force" checked="checked"/>
+    <input type="submit" value="ok"/>
+</form>
+<div id="cont">
+
+</div>
 
 </body>
 </html>
