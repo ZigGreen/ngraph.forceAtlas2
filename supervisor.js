@@ -1,7 +1,4 @@
 'use strict';
-function getAllNodes(ngraph) {
-
-}
 
 
 /**
@@ -15,11 +12,17 @@ var _root;
 
 try {
     _root = Function('return this')() || (42, eval)('this');
-} catch(e) {
+} catch (e) {
     _root = window;
 }
 
 var workerFn = require('./worker')();
+var Rect = function Rect(x1, y1, x2, y2) {
+    this.x1 = x1 || 0;
+    this.y1 = y1 || 0;
+    this.x2 = x2 || 0;
+    this.y2 = y2 || 0;
+};
 
 /**
  * Feature detection
@@ -31,9 +34,16 @@ var webWorkers = 'Worker' in _root;
  * Supervisor Object
  * ------------------
  */
-function Supervisor(graph, options) {
-    var _this = this
-        ;
+function Supervisor(graph, config) {
+    // Create supervisor if undefined
+    this._init(graph, config);
+
+    // Configuration provided?
+    if (config)
+        this.configure(config);
+}
+
+Supervisor.prototype._init = function (graph, options) {
 
     options = options || {};
 
@@ -52,11 +62,12 @@ function Supervisor(graph, options) {
     // State
     this.started = false;
     this.running = false;
+    this._pending = false;
 
     // Web worker or classic DOM events?
     if (this.shouldUseWorker) {
         if (!this.workerUrl) {
-            var blob = this.makeBlob(workerFn);
+            var blob = this._makeBlob(workerFn);
             this.worker = new Worker(URL.createObjectURL(blob));
         }
         else {
@@ -74,35 +85,35 @@ function Supervisor(graph, options) {
 
     // Worker message receiver
     this.msgName = (this.worker) ? 'message' : 'newCoords';
-    this.listener = function (e) {
+    var listener = this._onMessage.bind(this);
 
-        // Retrieving data
-        _this.nodesByteArray = new Float32Array(e.data.nodes);
-
-        // If ForceAtlas2 is running, we act accordingly
-        if (_this.running) {
-
-            // Applying layout
-            _this.applyLayoutChanges();
-
-            // Send data back to worker and loop
-            _this.sendByteArrayToWorker();
-
-        }
-    };
-
-    (this.worker || document).addEventListener(this.msgName, this.listener);
-
+    (this.worker || document).addEventListener(this.msgName, listener);
+    this.graphRect = new Rect(Number.MAX_VALUE, Number.MAX_VALUE, Number.MIN_VALUE, Number.MIN_VALUE);
     // Filling byteArrays
-    this.graphToByteArrays();
+    this._graphToByteArrays();
 
-    // Binding on kill to properly terminate layout when parent is killed
-    /*        sigInst.bind('kill', function() {
-     sigInst.killForceAtlas2();
-     });*/
-}
+};
 
-Supervisor.prototype.makeBlob = function (workerFn) {
+
+Supervisor.prototype._onMessage = function (e) {
+
+    // Retrieving data
+    this.nodesByteArray = new Float32Array(e.data.nodes);
+
+    this._applyLayoutChanges();
+
+    this._pending = false;
+    // If ForceAtlas2 is running, we act accordingly
+    if (this.running) {
+
+        // Send data back to worker and loop
+        this._sendByteArrayToWorker();
+
+    }
+};
+
+
+Supervisor.prototype._makeBlob = function (workerFn) {
     var blob;
 
     try {
@@ -121,7 +132,8 @@ Supervisor.prototype.makeBlob = function (workerFn) {
     return blob;
 };
 
-Supervisor.prototype.graphToByteArrays = function () {
+
+Supervisor.prototype._graphToByteArrays = function () {
     var nodes = this.graph.nodes,
         edges = this.graph.edges,
         nbytes = nodes.length * this.ppn,
@@ -136,24 +148,11 @@ Supervisor.prototype.graphToByteArrays = function () {
     this.edgesByteArray = new Float32Array(ebytes);
 
     // Iterate through nodes
-    for (i = j = 0, l = nodes.length; i < l; i++) {
+    this._refreshNodesByteArray();
 
+    for (i = j = 0, l = nodes.length; i < l; i++, j += this.ppn )
         // Populating index
         nIndex[nodes[i].id] = j;
-        var node =  nodes[i];
-        // Populating byte array
-        this.nodesByteArray[j] = node.x;
-        this.nodesByteArray[j + 1] = node.y;
-        this.nodesByteArray[j + 2] = 0;
-        this.nodesByteArray[j + 3] = 0;
-        this.nodesByteArray[j + 4] = 0;
-        this.nodesByteArray[j + 5] = 0;
-        this.nodesByteArray[j + 6] = 1 + this.graph.degree[node.id];
-        this.nodesByteArray[j + 7] = 1;
-        this.nodesByteArray[j + 8] = node.size || 0;
-        this.nodesByteArray[j + 9] = 0;
-        j += this.ppn;
-    }
 
     // Iterate through edges
     for (i = j = 0, l = edges.length; i < l; i++) {
@@ -164,20 +163,87 @@ Supervisor.prototype.graphToByteArrays = function () {
     }
 };
 
+
+Supervisor.prototype._refreshNodesByteArray = function () {
+    var minX = Number.MAX_VALUE,
+        maxX = Number.MIN_VALUE,
+        minY = Number.MAX_VALUE,
+        maxY = Number.MIN_VALUE,
+        nodes = this.graph.nodes,
+        x,
+        y,
+        i,
+        l,
+        j;
+
+    for (i = j = 0, l = nodes.length; i < l; i++) {
+
+        var node = nodes[i];
+        // Populating byte array
+        this.nodesByteArray[j] = x = node.x;
+        this.nodesByteArray[j + 1] = y = node.y;
+        this.nodesByteArray[j + 2] = 0;
+        this.nodesByteArray[j + 3] = 0;
+        this.nodesByteArray[j + 4] = 0;
+        this.nodesByteArray[j + 5] = 0;
+        this.nodesByteArray[j + 6] = 1 + this.graph.degree[node.id];
+        this.nodesByteArray[j + 7] = 1;
+        this.nodesByteArray[j + 8] = node.size || 0;
+        this.nodesByteArray[j + 9] = node.isPinned;
+        j += this.ppn;
+
+        if (minX > x)  minX = x;
+        if (maxX < x)  maxX = x;
+        if (minY > y)  minY = y;
+        if (maxY < y)  maxY = y;
+
+    }
+
+    this.graphRect = new Rect(minX, minY, maxX, maxY);
+
+};
+
+
 // TODO: make a better send function
-Supervisor.prototype.applyLayoutChanges = function () {
+Supervisor.prototype._applyLayoutChanges = function () {
+
     var nodes = this.graph.nodes,
-        j = 0;
+        j = 0,
+        x,
+        y;
+
+    var minX = Number.MAX_VALUE,
+        maxX = Number.MIN_VALUE,
+        minY = Number.MAX_VALUE,
+        maxY = Number.MIN_VALUE;
 
     // Moving nodes
     for (var i = 0, l = this.nodesByteArray.length; i < l; i += this.ppn) {
-        nodes[j].x = this.nodesByteArray[i];
-        nodes[j].y = this.nodesByteArray[i + 1];
+
+        if (!nodes[j].changed) {
+            nodes[j].x = x = this.nodesByteArray[i];
+            nodes[j].y = y = this.nodesByteArray[i + 1];
+        } else {
+            this.nodesByteArray[i] = x = nodes[j].x;
+            this.nodesByteArray[i + 1] = y = nodes[j].y;
+            this.nodesByteArray[i + 9] = nodes[j].isPinned;
+            nodes[j].changed = false
+        }
+
+        if (minX > x)  minX = x;
+        if (maxX < x)  maxX = x;
+        if (minY > y)  minY = y;
+        if (maxY < y)  maxY = y;
+
         j++;
     }
+
+    this.graphRect = new Rect(minX, minY, maxX, maxY);
+
 };
 
-Supervisor.prototype.sendByteArrayToWorker = function (action) {
+
+Supervisor.prototype._sendByteArrayToWorker = function (action) {
     var content = {
         action: action || 'loop',
         nodes: this.nodesByteArray.buffer
@@ -195,42 +261,9 @@ Supervisor.prototype.sendByteArrayToWorker = function (action) {
         this.worker.postMessage(content, buffers);
     else
         _root.postMessage(content, '*');
+    this._pending = true;
 };
 
-Supervisor.prototype.start = function () {
-    if (this.running)
-        return;
-
-    this.running = true;
-
-
-    if (!this.started) {
-
-        // Sending init message to worker
-        this.sendByteArrayToWorker('start');
-        this.started = true;
-    }
-    else {
-        this.sendByteArrayToWorker();
-    }
-};
-
-Supervisor.prototype.stop = function () {
-    if (!this.running)
-        return;
-
-    this.running = false;
-};
-
-Supervisor.prototype.killWorker = function () {
-    if (this.worker) {
-        this.worker.terminate();
-    }
-    else {
-        _root.postMessage({action: 'kill'}, '*');
-        document.removeEventListener(this.msgName, this.listener);
-    }
-};
 
 Supervisor.prototype.configure = function (config) {
 
@@ -247,38 +280,60 @@ Supervisor.prototype.configure = function (config) {
     else
         _root.postMessage(data, '*');
 };
+Supervisor.prototype.config = Supervisor.prototype.configure;
 
 
-function ForceAtlas2(graph, config) {
-    // Create supervisor if undefined
-    if (!this.supervisor)
-        this.supervisor = new Supervisor(graph, config);
+Supervisor.prototype.start = function () {
+    if (this.running)
+        return;
 
-    // Configuration provided?
-    if (config)
-        this.supervisor.configure(config);
-}
+    this.running = true;
 
 
-ForceAtlas2.prototype.start = function () {
+    if (!this.started) {
+        // Sending init message to worker
+        this._sendByteArrayToWorker('start');
+        this.started = true;
+    }
 
-    // Start algorithm
-    this.supervisor.start();
+    else this._sendByteArrayToWorker();
 
-    return this;
+};
+Supervisor.prototype.run = Supervisor.prototype.start;
+
+
+Supervisor.prototype.stop = function () {
+    if (!this.running)
+        return;
+
+    this.running = false;
 };
 
-ForceAtlas2.prototype.stop = function () {
-    if (!this.supervisor)
-        return this;
 
-    // Pause algorithm
-    this.supervisor.stop();
+Supervisor.prototype.killWorker = function () {
 
-    return this;
+    if (this.worker) {
+        this.worker.terminate();
+    }
+    else {
+        _root.postMessage({action: 'kill'}, '*');
+        document.removeEventListener(this.msgName, this.listener);
+    }
+
 };
 
-ForceAtlas2.prototype.kill = function () {
+
+Supervisor.prototype.step = function () {
+
+    if (this.isPending()) return;
+    this.start();
+    this.stop();
+
+    return false;
+};
+
+
+Supervisor.prototype.kill = function () {
     if (!this.supervisor)
         return this;
 
@@ -294,20 +349,33 @@ ForceAtlas2.prototype.kill = function () {
     return this;
 };
 
-ForceAtlas2.prototype.config = function (config) {
-    if (!this.supervisor)
-        this.supervisor = new Supervisor(this, config);
 
-    this.supervisor.configure(config);
-
-    return this;
+Supervisor.prototype.getGraphRect = function () {
+    return this.graphRect;
 };
 
-ForceAtlas2.prototype.isRunning = function () {
-    return !!this.supervisor && this.supervisor.running;
+
+Supervisor.prototype.isRunning = function () {
+    return this.running;
 };
 
-module.exports = ForceAtlas2;
+
+Supervisor.prototype.isPending = function () {
+    return this._pending;
+};
+
+
+Supervisor.prototype.forceUpdate = function () {
+
+
+    if (!this._pending)
+        this._refreshNodesByteArray();
+    else
+        this._needUpdate = true;
+};
+
+
+module.exports = Supervisor;
 
 
 
